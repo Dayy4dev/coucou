@@ -260,6 +260,13 @@ fn chat_reset(chat: State<Chat>) {
     chat.reset();
 }
 
+/// List available models from the configured provider.
+#[tauri::command]
+async fn list_models(shared: State<'_, Shared>) -> Result<Vec<String>, String> {
+    let provider = shared.settings.lock().unwrap().provider.clone();
+    claude::list_models(&provider).await
+}
+
 /// Copies a dropped file into the inbox and reports its name back.
 #[tauri::command]
 fn ingest_file(path: String) -> Result<DroppedFile, String> {
@@ -402,6 +409,7 @@ pub fn run() {
             log_line,
             chat_send,
             chat_reset,
+            list_models,
             ingest_file,
             secret_present,
             secret_set,

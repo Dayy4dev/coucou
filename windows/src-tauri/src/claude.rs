@@ -160,6 +160,97 @@ pub async fn send(
     Ok(ChatReply { text })
 }
 
+/// List available models from the provider's /models endpoint.
+/// Returns model IDs. Anthropic and OpenAI-compatible APIs supported.
+pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, String> {
+    let key = secrets::get(&provider.key_name)
+        .ok_or_else(|| format!("API key missing for {}. Open settings.", provider.provider_type))?;
+
+    // Determine models endpoint based on provider
+    let endpoint = match provider.provider_type.as_str() {
+        "anthropic" => "https://api.anthropic.com/v1/models",
+        "openai" => provider.base_url.replace("/chat/completions", "/models"),
+        "custom" => {
+            // Try to infer models endpoint from base URL
+            if provider.base_url.contains("/chat/completions") {
+                provider.base_url.replace("/chat/completions", "/models")
+            } else if provider.base_url.contains("/v1/messages") {
+                provider.base_url.replace("/v1/messages", "/v1/models")
+            } else {
+                // Fallback: append /models to base
+                format!("{}/models", provider.base_url.trim_end_matches('/'))
+            }
+        }
+        _ => return Err(format!("Unknown provider type: {}", provider.provider_type)),
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut req = client.get(&endpoint);
+
+    // Set provider-specific headers
+    match provider.provider_type.as_str() {
+        "anthropic" => {
+            req = req
+                .header("x-api-key", &key)
+                .header("anthropic-version", ANTHROPIC_VERSION);
+        }
+        "openai" | _ => {
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    let status = response.status();
+    let text = response.text().await.map_err(|e| e.to_string())?;
+    
+    if !status.is_success() {
+        return Err(format!("Models API {}: {}", status, text.chars().take(200).collect::<String>()));
+    }
+
+    let data: Value = serde_json::from_str(&text)
+        .map_err(|e| format!("Bad API response: {e}"))?;
+
+    // Parse response based on provider format
+    let models = match provider.provider_type.as_str() {
+        "anthropic" => {
+            // Anthropic: {"data": [{"id": "claude-3-opus-20240229", ...}, ...]}
+            data.get("data")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| m.get("id").and_then(Value::as_str).map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        _ => {
+            // OpenAI-compatible: {"data": [{"id": "gpt-4", ...}, ...]}
+            data.get("data")
+                .and_then(Value::as_array)
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| m.get("id").and_then(Value::as_str).map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+    };
+
+    if models.is_empty() {
+        return Err("No models found".into());
+    }
+
+    Ok(models)
+}
+
 async fn call(key: &str, body: &Value, provider: &ProviderConfig) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))

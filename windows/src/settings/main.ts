@@ -285,16 +285,39 @@ function apiSection(hasKey: boolean): HTMLElement {
     }
   });
 
-  const model = h("select", {}) as HTMLSelectElement;
-  for (const [id, label] of MODELS) model.append(h("option", { value: id, text: label }));
-  if (!MODELS.some(([id]) => id === settings.model)) {
-    model.append(h("option", { value: settings.model, text: settings.model }));
-  }
-  model.value = settings.model;
-  model.addEventListener("change", () => {
-    settings.model = model.value;
-    void save();
-  });
+  const model = h("div", { class: "row" }, 
+    h("label", { text: "Model" }),
+    h("div", { style: "flex:1 1 auto;display:flex;gap:8px;min-width:0" },
+      h("input", {
+        type: "text",
+        value: settings.model,
+        placeholder: "claude-opus-5 or custom-model-id",
+        style: "flex:1 1 auto;min-width:0",
+        onchange: (e: Event) => {
+          const value = (e.target as HTMLInputElement).value.trim();
+          if (value) {
+            settings.model = value;
+            void save();
+          }
+        },
+      }),
+      h("button", {
+        text: "Auto-detect",
+        onclick: async () => {
+          try {
+            const models = await Bridge.listModels?.();
+            if (models && models.length > 0) {
+              settings.model = models[0];
+              void save();
+              feedback.append(h("div", { class: "notice ok", text: `Detected: ${models.join(", ")}` }));
+            }
+          } catch (err) {
+            feedback.append(h("div", { class: "notice err", text: `Could not detect models: ${String(err)}` }));
+          }
+        },
+      }),
+    ),
+  );
 
   clearBtn.style.display = hasKey ? "" : "none";
 
