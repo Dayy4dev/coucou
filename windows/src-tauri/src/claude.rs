@@ -108,14 +108,53 @@ pub async fn send(
 
     chat.push(json!({ "role": "user", "content": content }));
 
-    let body = json!({
-        "model": model,
-        "max_tokens": MAX_TOKENS,
-        "system": SYSTEM_PROMPT,
-        "tools": [{ "type": "web_search_20260209", "name": "web_search", "max_uses": 5 }],
-        "fallbacks": "default",
-        "messages": chat.snapshot(),
-    });
+    // Build request body based on provider
+    let body = match provider.provider_type.as_str() {
+        "anthropic" => {
+            json!({
+                "model": model,
+                "max_tokens": MAX_TOKENS,
+                "system": SYSTEM_PROMPT,
+                "tools": [{ "type": "web_search_20260209", "name": "web_search", "max_uses": 5 }],
+                "fallbacks": "default",
+                "messages": chat.snapshot(),
+            })
+        }
+        "openai" | _ => {
+            // OpenAI-compatible format
+            let messages: Vec<Value> = chat.snapshot()
+                .iter()
+                .map(|msg| {
+                    let role = msg.get("role").and_then(Value::as_str).unwrap_or("user").to_string();
+                    let content_val = msg.get("content");
+                    let content = match content_val {
+                        Some(Value::Array(arr)) => {
+                            // Convert Anthropic content blocks to string
+                            arr.iter()
+                                .filter_map(|block| {
+                                    match block.get("type").and_then(Value::as_str) {
+                                        Some("text") => block.get("text").and_then(Value::as_str),
+                                        _ => None,
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        }
+                        Some(Value::String(s)) => s.clone(),
+                        _ => String::new(),
+                    };
+                    json!({"role": role, "content": content})
+                })
+                .collect();
+
+            json!({
+                "model": model,
+                "max_tokens": MAX_TOKENS,
+                "messages": messages,
+                "temperature": 0.7,
+            })
+        }
+    };
 
     let response = match call(&key, &body, provider).await {
         Ok(v) => v,
@@ -136,23 +175,45 @@ pub async fn send(
         return Err(why.to_string());
     }
 
-    let Some(blocks) = response.get("content").and_then(Value::as_array).cloned() else {
-        chat.pop();
-        return Err("Unexpected API response.".into());
+    // Parse response based on provider format
+    let text = match provider.provider_type.as_str() {
+        "anthropic" => {
+            // Anthropic format: {"content": [{"type": "text", "text": "..."}]}
+            let Some(blocks) = response.get("content").and_then(Value::as_array).cloned() else {
+                chat.pop();
+                return Err("Unexpected API response.".into());
+            };
+            chat.push(json!({ "role": "assistant", "content": blocks.clone() }));
+            blocks
+                .iter()
+                .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|b| b.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string()
+        }
+        _ => {
+            // OpenAI-compatible format: {"choices": [{"message": {"content": "..."}}]}
+            let content = response
+                .get("choices")
+                .and_then(Value::as_array)
+                .and_then(|arr| arr.get(0))
+                .and_then(|choice| choice.get("message"))
+                .and_then(|msg| msg.get("content"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            
+            if content.is_empty() {
+                chat.pop();
+                return Err("No response text from provider.".into());
+            }
+            
+            // Store in Anthropic-like format for consistency
+            chat.push(json!({ "role": "assistant", "content": [{"type": "text", "text": content}] }));
+            content.to_string()
+        }
     };
-
-    // Store the whole content — tool_use / tool_result blocks included — so the
-    // next turn has the right context.
-    chat.push(json!({ "role": "assistant", "content": blocks.clone() }));
-
-    let text = blocks
-        .iter()
-        .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|b| b.get("text").and_then(Value::as_str))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .to_string();
 
     if text.is_empty() {
         return Err("No response text.".into());
