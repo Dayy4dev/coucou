@@ -6,6 +6,42 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProviderConfig {
+    /// Provider type: "anthropic", "openai", "custom"
+    #[serde(default = "default_provider_type")]
+    pub provider_type: String,
+    /// Base URL for API endpoint
+    #[serde(default = "default_base_url")]
+    pub base_url: String,
+    /// Secret key name in credential manager
+    #[serde(default = "default_key_name")]
+    pub key_name: String,
+}
+
+fn default_provider_type() -> String {
+    "anthropic".to_string()
+}
+
+fn default_base_url() -> String {
+    "https://api.anthropic.com/v1/messages".to_string()
+}
+
+fn default_key_name() -> String {
+    "anthropic-api-key".to_string()
+}
+
+impl Default for ProviderConfig {
+    fn default() -> Self {
+        Self {
+            provider_type: default_provider_type(),
+            base_url: default_base_url(),
+            key_name: default_key_name(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub sound_enabled: bool,
     pub sound_volume: f64,
@@ -20,6 +56,9 @@ pub struct Settings {
     /// Defaulted explicitly so a settings.json written by an older build still loads.
     #[serde(default = "default_model")]
     pub model: String,
+    /// AI provider configuration
+    #[serde(default)]
+    pub provider: ProviderConfig,
 }
 
 fn default_model() -> String {
@@ -43,6 +82,7 @@ impl Default for Settings {
             autostart: false,
             hooks_installed: false,
             model: default_model(),
+            provider: ProviderConfig::default(),
         }
     }
 }

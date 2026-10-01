@@ -3,6 +3,8 @@
 //
 // Everything happens here rather than in the island: the API key never leaves
 // the Credential Manager, and file bytes never cross the IPC boundary.
+//
+// Supports Anthropic Claude and compatible providers (OpenAI, custom API-compatible).
 
 use std::sync::Mutex;
 
@@ -10,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::secrets;
+use crate::settings::ProviderConfig;
 
-const ENDPOINT: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// Server-side fallback: on a policy decline the API retries the same request on
 /// a fallback model inside the same call, so the island never shows a dead end.
@@ -75,9 +77,10 @@ pub async fn send(
     model: &str,
     query: String,
     context: Option<ChatContext>,
+    provider: &ProviderConfig,
 ) -> Result<ChatReply, String> {
-    let key = secrets::get("anthropic-api-key")
-        .ok_or_else(|| "API key missing. Open settings.".to_string())?;
+    let key = secrets::get(&provider.key_name)
+        .ok_or_else(|| format!("API key missing for {}. Open settings.", provider.provider_type))?;
 
     let mut content: Vec<Value> = Vec::new();
 
@@ -114,7 +117,7 @@ pub async fn send(
         "messages": chat.snapshot(),
     });
 
-    let response = match call(&key, &body).await {
+    let response = match call(&key, &body, provider).await {
         Ok(v) => v,
         Err(err) => {
             chat.pop(); // keep the history consistent with what the model saw
@@ -129,7 +132,7 @@ pub async fn send(
             .get("stop_details")
             .and_then(|d| d.get("explanation"))
             .and_then(Value::as_str)
-            .unwrap_or("Claude declined this one.");
+            .unwrap_or("Provider declined this one.");
         return Err(why.to_string());
     }
 
@@ -157,17 +160,29 @@ pub async fn send(
     Ok(ChatReply { text })
 }
 
-async fn call(key: &str, body: &Value) -> Result<Value, String> {
+async fn call(key: &str, body: &Value, provider: &ProviderConfig) -> Result<Value, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(90))
         .build()
         .map_err(|e| e.to_string())?;
 
-    let response = client
-        .post(ENDPOINT)
-        .header("x-api-key", key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("anthropic-beta", FALLBACK_BETA)
+    let mut req = client.post(&provider.base_url);
+
+    // Set provider-specific headers
+    match provider.provider_type.as_str() {
+        "anthropic" => {
+            req = req
+                .header("x-api-key", key)
+                .header("anthropic-version", ANTHROPIC_VERSION)
+                .header("anthropic-beta", FALLBACK_BETA);
+        }
+        "openai" | _ => {
+            // OpenAI and most compatible APIs use Authorization header
+            req = req.header("Authorization", format!("Bearer {}", key));
+        }
+    }
+
+    let response = req
         .header("content-type", "application/json")
         .json(body)
         .send()
@@ -182,12 +197,17 @@ async fn call(key: &str, body: &Value) -> Result<Value, String> {
             .ok()
             .and_then(|v| {
                 v.get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
+                    .and_then(|e| match e {
+                        Value::Object(map) => map
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        Value::String(s) => Some(s.clone()),
+                        _ => None,
+                    })
             })
             .unwrap_or_else(|| text.chars().take(200).collect());
-        return Err(format!("Claude API {status}: {detail}"));
+        return Err(format!("{} API {}: {}", provider.provider_type, status, detail));
     }
     serde_json::from_str(&text).map_err(|e| format!("Bad API response: {e}"))
 }

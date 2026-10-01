@@ -179,9 +179,62 @@ const MODELS: [string, string][] = [
   ["claude-haiku-4-5", "Claude Haiku 4.5"],
 ];
 
+const PROVIDERS: [string, string, string][] = [
+  ["anthropic", "Anthropic Claude", "https://api.anthropic.com/v1/messages"],
+  ["openai", "OpenAI Compatible", "https://api.openai.com/v1/chat/completions"],
+  ["custom", "Custom Provider", ""],
+];
+
 function apiSection(hasKey: boolean): HTMLElement {
+  const providerType = settings.provider?.providerType || "anthropic";
+  const baseUrl = settings.provider?.baseUrl || "https://api.anthropic.com/v1/messages";
+  const keyName = settings.provider?.keyName || "anthropic-api-key";
+
   const dot = statusDot(hasKey);
   const state = h("span", { class: "hint", text: hasKey ? "Key saved in the Windows Credential Manager." : "No key yet — the chat needs one." });
+
+  // Provider type selector
+  const providerSelect = h("select", {}) as HTMLSelectElement;
+  for (const [id, label] of PROVIDERS) {
+    providerSelect.append(h("option", { value: id, text: label }));
+  }
+  providerSelect.value = providerType;
+
+  // Custom URL field (shown only for custom provider)
+  const urlField = h("input", {
+    type: "text",
+    placeholder: "https://your-api.example.com/v1/messages",
+    value: baseUrl,
+    style: "flex:1 1 auto;min-width:0",
+  }) as HTMLInputElement;
+  const urlRow = h("div", { class: "row" }, h("label", { text: "API URL" }), urlField);
+  urlRow.style.display = providerType === "custom" ? "" : "none";
+
+  providerSelect.addEventListener("change", () => {
+    const selected = providerSelect.value;
+    const preset = PROVIDERS.find(([id]) => id === selected);
+    
+    if (selected === "custom") {
+      urlRow.style.display = "";
+    } else {
+      urlRow.style.display = "none";
+      if (preset) urlField.value = preset[2];
+    }
+    
+    settings.provider = {
+      providerType: selected,
+      baseUrl: urlField.value,
+      keyName: selected === "anthropic" ? "anthropic-api-key" : `${selected}-api-key`,
+    };
+    void save();
+    void refresh();
+  });
+
+  urlField.addEventListener("change", () => {
+    settings.provider = settings.provider || { providerType: "anthropic", baseUrl: "", keyName: "anthropic-api-key" };
+    settings.provider.baseUrl = urlField.value.trim();
+    void save();
+  });
 
   const field = h("input", {
     type: "password",
@@ -196,7 +249,8 @@ function apiSection(hasKey: boolean): HTMLElement {
   const feedback = h("div", {});
 
   async function refresh() {
-    const present = (await Bridge.secretPresent("anthropic-api-key")) ?? false;
+    const currentKeyName = settings.provider?.keyName || "anthropic-api-key";
+    const present = (await Bridge.secretPresent(currentKeyName)) ?? false;
     dot.style.background = present ? "#22c55e" : "#f4505e";
     state.textContent = present
       ? "Key saved in the Windows Credential Manager."
@@ -210,7 +264,8 @@ function apiSection(hasKey: boolean): HTMLElement {
     if (!value) return;
     clear(feedback);
     try {
-      await Bridge.secretSet("anthropic-api-key", value);
+      const currentKeyName = settings.provider?.keyName || "anthropic-api-key";
+      await Bridge.secretSet(currentKeyName, value);
       field.value = "";
       feedback.append(h("div", { class: "notice ok", text: "Saved. It never touches disk." }));
       await refresh();
@@ -222,7 +277,8 @@ function apiSection(hasKey: boolean): HTMLElement {
   clearBtn.addEventListener("click", async () => {
     clear(feedback);
     try {
-      await Bridge.secretClear("anthropic-api-key");
+      const currentKeyName = settings.provider?.keyName || "anthropic-api-key";
+      await Bridge.secretClear(currentKeyName);
       feedback.append(h("div", { class: "notice ok", text: "Key removed." }));
       await refresh();
     } catch (err) {
@@ -246,8 +302,10 @@ function apiSection(hasKey: boolean): HTMLElement {
   return h(
     "section",
     {},
-    h("h2", {}, dot, h("span", { text: "Claude" })),
+    h("h2", {}, dot, h("span", { text: "AI Provider" })),
     state,
+    h("div", { class: "row" }, h("label", { text: "Provider" }), providerSelect),
+    urlRow,
     h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn),
     h("div", { class: "row" }, h("label", { text: "Model" }), model),
     feedback,

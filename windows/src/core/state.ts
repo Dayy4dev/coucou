@@ -92,6 +92,12 @@ export interface Settings {
   hooksInstalled: boolean;
   /** Claude model used by the chat. */
   model: string;
+  /** AI provider configuration */
+  provider?: {
+    providerType: string;
+    baseUrl: string;
+    keyName: string;
+  };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -106,6 +112,11 @@ export const DEFAULT_SETTINGS: Settings = {
   autostart: false,
   hooksInstalled: false,
   model: "claude-opus-5",
+  provider: {
+    providerType: "anthropic",
+    baseUrl: "https://api.anthropic.com/v1/messages",
+    keyName: "anthropic-api-key",
+  },
 };
 
 type Listener = () => void;
