@@ -188,7 +188,6 @@ const PROVIDERS: [string, string, string][] = [
 function apiSection(hasKey: boolean): HTMLElement {
   const providerType = settings.provider?.providerType || "anthropic";
   const baseUrl = settings.provider?.baseUrl || "https://api.anthropic.com/v1/messages";
-  const keyName = settings.provider?.keyName || "anthropic-api-key";
 
   const dot = statusDot(hasKey);
   const state = h("span", { class: "hint", text: hasKey ? "Key saved in the Windows Credential Manager." : "No key yet — the chat needs one." });
