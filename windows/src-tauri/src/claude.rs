@@ -322,7 +322,26 @@ async fn call(key: &str, body: &Value, provider: &ProviderConfig) -> Result<Valu
         .build()
         .map_err(|e| e.to_string())?;
 
-    let mut req = client.post(&provider.base_url);
+    // Normalize endpoint URL for OpenAI-compatible providers
+    let url = match provider.provider_type.as_str() {
+        "anthropic" => provider.base_url.clone(),
+        _ => {
+            // OpenAI-compatible: ensure /chat/completions is present
+            let base = provider.base_url.trim_end_matches('/');
+            if base.ends_with("/chat/completions") {
+                base.to_string()
+            } else if base.ends_with("/v1") {
+                format!("{}/chat/completions", base)
+            } else if !base.contains("/chat") {
+                // Assume it's a base URL, append v1/chat/completions
+                format!("{}/v1/chat/completions", base)
+            } else {
+                base.to_string()
+            }
+        }
+    };
+
+    let mut req = client.post(&url);
 
     // Set provider-specific headers
     match provider.provider_type.as_str() {
