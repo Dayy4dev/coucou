@@ -168,7 +168,7 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
 
     // Determine models endpoint based on provider
     let endpoint = match provider.provider_type.as_str() {
-        "anthropic" => "https://api.anthropic.com/v1/models",
+        "anthropic" => "https://api.anthropic.com/v1/models".to_string(),
         "openai" => provider.base_url.replace("/chat/completions", "/models"),
         "custom" => {
             // Try to infer models endpoint from base URL
