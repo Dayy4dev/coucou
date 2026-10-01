@@ -219,7 +219,7 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
         .map_err(|e| format!("Bad API response: {e}"))?;
 
     // Parse response based on provider format
-    let models = match provider.provider_type.as_str() {
+    let models: Vec<String> = match provider.provider_type.as_str() {
         "anthropic" => {
             // Anthropic: {"data": [{"id": "claude-3-opus-20240229", ...}, ...]}
             data.get("data")
