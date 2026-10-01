@@ -298,15 +298,18 @@ function apiSection(hasKey: boolean): HTMLElement {
       h("button", {
         text: "Auto-detect",
         onclick: async () => {
+          clear(feedback);
           try {
             const models = await Bridge.listModels?.();
             if (models && models.length > 0) {
               settings.model = models[0];
               void save();
               feedback.append(h("div", { class: "notice ok", text: `Detected: ${models.join(", ")}` }));
+            } else {
+              feedback.append(h("div", { class: "notice", text: "No models endpoint available. Enter model manually." }));
             }
           } catch (err) {
-            feedback.append(h("div", { class: "notice err", text: `Could not detect models: ${String(err)}` }));
+            feedback.append(h("div", { class: "notice", text: `Could not detect models. Enter model manually.` }));
           }
         },
       }),

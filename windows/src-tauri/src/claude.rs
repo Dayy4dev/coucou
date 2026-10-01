@@ -212,7 +212,9 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
     let text = response.text().await.map_err(|e| e.to_string())?;
     
     if !status.is_success() {
-        return Err(format!("Models API {}: {}", status, text.chars().take(200).collect::<String>()));
+        // Don't fail completely - custom providers might not expose /models endpoint
+        // Just return empty list and let user input model manually
+        return Ok(vec![]);
     }
 
     let data: Value = serde_json::from_str(&text)
@@ -245,7 +247,9 @@ pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, Strin
     };
 
     if models.is_empty() {
-        return Err("No models found".into());
+        // No models found - provider might not expose /models endpoint
+        // Return empty vec instead of error so user can input manually
+        return Ok(vec![]);
     }
 
     Ok(models)
