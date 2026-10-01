@@ -173,12 +173,6 @@ function claudeSection(status: HookStatus): HTMLElement {
 
 // ── Claude API section ────────────────────────────────────────────────────────
 
-const MODELS: [string, string][] = [
-  ["claude-opus-5", "Claude Opus 5"],
-  ["claude-sonnet-5", "Claude Sonnet 5"],
-  ["claude-haiku-4-5", "Claude Haiku 4.5"],
-];
-
 const PROVIDERS: [string, string, string][] = [
   ["anthropic", "Anthropic Claude", "https://api.anthropic.com/v1/messages"],
   ["openai", "OpenAI Compatible", "https://api.openai.com/v1/chat/completions"],
