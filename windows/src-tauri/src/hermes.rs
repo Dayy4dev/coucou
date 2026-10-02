@@ -49,7 +49,7 @@ fn exe_path() -> Result<PathBuf, String> {
             if !first.is_empty() {
                 let p = PathBuf::from(&first);
                 if p.is_file() {
-                    *EXE.lock().unwrap() = Some(p);
+                    *EXE.lock().unwrap() = Some(p.clone());
                     return Ok(p);
                 }
             }
