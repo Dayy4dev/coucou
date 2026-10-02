@@ -152,6 +152,7 @@ pub async fn send(
                 "max_tokens": MAX_TOKENS,
                 "messages": messages,
                 "temperature": 0.7,
+                "stream": false,
             })
         }
     };
@@ -384,7 +385,53 @@ async fn call(key: &str, body: &Value, provider: &ProviderConfig) -> Result<Valu
             .unwrap_or_else(|| text.chars().take(200).collect());
         return Err(format!("{} API {}: {}", provider.provider_type, status, detail));
     }
-    serde_json::from_str(&text).map_err(|e| format!("Bad API response: {e}"))
+    serde_json::from_str(&text)
+        .or_else(|_| parse_lenient(&text))
+        .map_err(|e| format!("Bad API response: {e}"))
+}
+
+/// Some providers stream (SSE `data: {...}`), emit several JSON objects, or
+/// append junk after a valid payload. Take the first complete JSON object.
+fn parse_lenient(text: &str) -> Result<Value, String> {
+    // SSE: keep only the payload of the last data: line that is an object.
+    let cleaned: &str = if text.lines().any(|l| l.starts_with("data:")) {
+        text.lines()
+            .filter_map(|l| l.strip_prefix("data:").map(str::trim))
+            .find(|l| l.starts_with('{'))
+            .unwrap_or("")
+    } else {
+        text.trim()
+    };
+
+    // Walk braces (string-aware) and parse the first balanced object.
+    let bytes = cleaned.as_bytes();
+    let mut start = None;
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut esc = false;
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\\' if in_str => esc = !esc,
+            b'"' if !esc => in_str = !in_str,
+            b'{' if !in_str => {
+                if start.is_none() {
+                    start = Some(i);
+                }
+                depth += 1;
+            }
+            b'}' if !in_str => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(s) = start {
+                        return serde_json::from_str(&cleaned[s..=i])
+                            .map_err(|e| format!("Bad API response: {e}"));
+                    }
+                }
+            }
+            _ => esc = false,
+        }
+    }
+    Err("Bad API response: no complete JSON object found".into())
 }
 
 /// PDF → document block, image → image block, text/code → inline text.
