@@ -83,6 +83,8 @@ export const Bridge = {
   chatSend: (query: string, context: ChatContext | null) =>
     callOrThrow<{ text: string }>("chat_send", { query, context }),
   chatReset: () => call<void>("chat_reset"),
+  /** Is Hermes Agent installed + which model does it run? */
+  hermesStatus: () => call<{ installed: boolean; model: string | null }>("hermes_status"),
   /** List available models from the configured provider. */
   listModels: () => callOrThrow<string[]>("list_models"),
   /** Copies a dropped file into the inbox. */

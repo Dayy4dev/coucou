@@ -177,6 +177,7 @@ const PROVIDERS: [string, string, string][] = [
   ["anthropic", "Anthropic Claude", "https://api.anthropic.com/v1/messages"],
   ["openai", "OpenAI Compatible", "https://api.openai.com/v1/chat/completions"],
   ["custom", "Custom Provider", ""],
+  ["hermes", "Hermes Agent (local)", ""],
 ];
 
 function apiSection(hasKey: boolean): HTMLElement {
@@ -219,6 +220,7 @@ function apiSection(hasKey: boolean): HTMLElement {
       baseUrl: urlField.value,
       keyName: selected === "anthropic" ? "anthropic-api-key" : `${selected}-api-key`,
     };
+    applyVisibility();
     void save();
     void refresh();
   });
@@ -241,7 +243,38 @@ function apiSection(hasKey: boolean): HTMLElement {
   const clearBtn = h("button", { class: "danger", text: "Remove" });
   const feedback = h("div", {});
 
+  // Hermes row: no key, no model field — the agent brings its own.
+  const hermesState = h("span", { class: "hint", text: "Checking for the Hermes Agent…" });
+  const hermesRow = h("div", { class: "row" }, h("label", { text: "Hermes Agent" }), hermesState);
+  hermesRow.style.display = "none";
+
+  function isHermes(): boolean {
+    return (settings.provider?.providerType || "anthropic") === "hermes";
+  }
+
+  function applyVisibility() {
+    const hermes = isHermes();
+    keyRow.style.display = hermes ? "none" : "";
+    modelRow.style.display = hermes ? "none" : "";
+    hermesRow.style.display = hermes ? "" : "none";
+    urlRow.style.display = !hermes && (settings.provider?.providerType || "") === "custom" ? "" : "none";
+  }
+
   async function refresh() {
+    if (isHermes()) {
+      const status = await Bridge.hermesStatus?.();
+      if (status?.installed) {
+        dot.style.background = "#22c55e";
+        hermesState.textContent = status.model
+          ? `Connected — ${status.model}. No API key needed.`
+          : "Connected. No API key needed.";
+      } else {
+        dot.style.background = "#f4505e";
+        hermesState.textContent = "Not found. Install Hermes Agent first.";
+      }
+      clearBtn.style.display = "none";
+      return;
+    }
     const currentKeyName = settings.provider?.keyName || "anthropic-api-key";
     const present = (await Bridge.secretPresent(currentKeyName)) ?? false;
     dot.style.background = present ? "#22c55e" : "#f4505e";
@@ -318,6 +351,11 @@ function apiSection(hasKey: boolean): HTMLElement {
 
   clearBtn.style.display = hasKey ? "" : "none";
 
+  const keyRow = h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn);
+  const modelRow = model;
+  applyVisibility();
+  void refresh();
+
   return h(
     "section",
     {},
@@ -325,8 +363,9 @@ function apiSection(hasKey: boolean): HTMLElement {
     state,
     h("div", { class: "row" }, h("label", { text: "Provider" }), providerSelect),
     urlRow,
-    h("div", { class: "row" }, h("label", { text: "API key" }), field, saveBtn, clearBtn),
-    h("div", { class: "row" }, h("label", { text: "Model" }), model),
+    hermesRow,
+    keyRow,
+    modelRow,
     feedback,
   );
 }

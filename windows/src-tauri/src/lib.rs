@@ -2,6 +2,7 @@
 
 mod claude;
 mod files;
+mod hermes;
 mod hooks;
 mod integrations;
 mod island;
@@ -22,6 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
 
 use claude::{Chat, ChatContext, ChatReply};
+use hermes::HermesChat;
 use files::DroppedFile;
 use hooks::{HookPreview, HookStatus};
 use island::{PollGate, ScreenInfo};
@@ -245,6 +247,7 @@ fn approval_decline(app: AppHandle, request_id: String) {
 async fn chat_send(
     shared: State<'_, Shared>,
     chat: State<'_, Chat>,
+    hermes_chat: State<'_, HermesChat>,
     query: String,
     context: Option<ChatContext>,
 ) -> Result<ChatReply, String> {
@@ -252,12 +255,22 @@ async fn chat_send(
         let settings = shared.settings.lock().unwrap();
         (settings.model.clone(), settings.provider.clone())
     };
+    if provider.provider_type == "hermes" {
+        return hermes::send(&hermes_chat, query, context, &provider).await;
+    }
     claude::send(&chat, &model, query, context, &provider).await
 }
 
 #[tauri::command]
-fn chat_reset(chat: State<Chat>) {
+fn chat_reset(chat: State<Chat>, hermes_chat: State<HermesChat>) {
     chat.reset();
+    hermes_chat.reset();
+}
+
+/// Is the Hermes Agent installed, and which model does it use? Settings UI.
+#[tauri::command]
+fn hermes_status() -> serde_json::Value {
+    hermes::status_json()
 }
 
 /// List available models from the configured provider.
@@ -390,6 +403,7 @@ pub fn run() {
         })
         .manage(Pending::default())
         .manage(Chat::default())
+        .manage(HermesChat::default())
         .invoke_handler(tauri::generate_handler![
             boot,
             save_settings,
@@ -409,6 +423,7 @@ pub fn run() {
             log_line,
             chat_send,
             chat_reset,
+            hermes_status,
             list_models,
             ingest_file,
             secret_present,

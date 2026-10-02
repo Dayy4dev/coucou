@@ -225,6 +225,10 @@ pub async fn send(
 /// List available models from the provider's /models endpoint.
 /// Returns model IDs. Anthropic and OpenAI-compatible APIs supported.
 pub async fn list_models(provider: &ProviderConfig) -> Result<Vec<String>, String> {
+    // Hermes runs its own model from its own config — no /models query, no key.
+    if provider.provider_type == "hermes" {
+        return Ok(vec![]);
+    }
     let key = secrets::get(&provider.key_name)
         .ok_or_else(|| format!("API key missing for {}. Open settings.", provider.provider_type))?;
 
